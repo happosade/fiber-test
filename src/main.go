@@ -26,12 +26,16 @@ func init() {
 
 func main() {
 	app := fiber.New(fiber.Config{
-		AppName:      "CSP Server",
-		ServerHeader: "Central bureau of Content Security Policy (CSP) reporting agency",
+		AppName:      "Reporting Server",
+		ServerHeader: "Central bureau of Browser reported metrics",
 		Prefork:      true,
 		JSONEncoder:  sonic.Marshal,
 		JSONDecoder:  sonic.Unmarshal,
-	})
+	})	
+	
+	app.Use(compress.New(compress.Config{
+		Level: compress.LevelBestCompression,
+	}))
 
 	// Ratelimit
 	i, _ := strconv.Atoi(getEnv("RATE_LIMIT", "30"))
@@ -43,21 +47,27 @@ func main() {
 			return c.Get("X-Forwarded-For")
 		},
 		LimitReached: func(c *fiber.Ctx) error {
-			return c.SendStatus(429)
+			return c.SendStatus(fiber.StatusTooManyRequests)
 		},
 	}))
 
 	// Monitoring
-	prometheus := fiberprometheus.New("CSP_reporting_agency")
+	prometheus := fiberprometheus.New("reporting_server")
 	prometheus.RegisterAt(app, "/metrics")
 	app.Use(prometheus.Middleware)
-	app.Use(compress.New(compress.Config{
-		Level: compress.LevelBestCompression,
-	}))
+
 
 	// Path for health check
 	app.Get("/ping", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"message": "pong"})
+	})
+
+	app.Get("/healthz", func(c *fiber.Ctx) error {
+		if elastic.ConnectStatus() {
+			return c.SendStatus(fiber.StatusOK)
+		}
+
+		return c.SendStatus(fiber.StatusServiceUnavailable)
 	})
 
 	// Greetings/testings path
@@ -65,10 +75,9 @@ func main() {
 		return c.SendString("Hello, " + c.Params("name") + "!")
 	})
 
-	// Reporting path
-	app.Post("/report", func(c *fiber.Ctx) error {
-		c.Accepts("application/json")
-
+	// Reporting CSP
+	app.Post("/csp", func(c *fiber.Ctx) error {
+		c.Accepts(fiber.MIMEApplicationJSONCharsetUTF8)
 		c.Response().BodyWriter().Write([]byte("Thanks!"))
 		return nil
 	})

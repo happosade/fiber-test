@@ -25,6 +25,10 @@ func ConnectES() {
 	}
 }
 
+func ConnectStatus() bool {
+	return true
+}
+
 func Report() {
 
 }
